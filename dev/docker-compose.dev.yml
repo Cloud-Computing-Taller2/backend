@@ -1,0 +1,33 @@
+# PostgreSQL y LocalStack para desarrollo local.
+# Uso: docker compose -f dev/docker-compose.dev.yml up -d
+name: driveclone-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: drive
+      POSTGRES_PASSWORD: drive
+      POSTGRES_DB: driveclone
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drive -d driveclone"]
+      interval: 3s
+      retries: 20
+
+  localstack:
+    # La versión 2026.x (latest) pide LOCALSTACK_AUTH_TOKEN; la 3 no.
+    image: localstack/localstack:3
+    environment:
+      SERVICES: s3,sqs,iam
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - ./localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 3s
+      retries: 40
