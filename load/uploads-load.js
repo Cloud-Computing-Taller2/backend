@@ -3,7 +3,13 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { headers, BASE_URL, makePayload, waitUntilDone } from './lib.js';
+import {
+  headers,
+  BASE_URL,
+  FOLDER_ID,
+  makePayload,
+  waitUntilDone,
+} from './lib.js';
 
 const RATE = Number(__ENV.RATE || 20);
 const SIZE_KB = Number(__ENV.SIZE_KB || 512);
@@ -39,7 +45,7 @@ export default function () {
   const name = `load-${__VU}-${__ITER}-${Date.now()}.pdf`;
   const started = Date.now();
   const res = http.post(
-    `${BASE_URL}/files?folderId=root`,
+    `${BASE_URL}/files?folderId=${FOLDER_ID}`,
     { file: http.file(payload, name, 'application/pdf') },
     { headers: headers(), tags: { name: 'POST /files' } },
   );

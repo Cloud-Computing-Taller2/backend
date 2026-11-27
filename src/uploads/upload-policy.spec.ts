@@ -1,7 +1,7 @@
 import {
   buildObjectKey,
   fileTooLarge,
-  isUuid,
+  isId,
   mimeTypeFor,
   sanitizeFileName,
 } from './upload-policy';
@@ -42,13 +42,17 @@ describe('upload-policy', () => {
     expect(sanitizeFileName('x'.repeat(300) + '.pdf')).toBeNull();
   });
 
-  it('la clave del bucket no depende del nombre (renombrar no mueve el objeto)', () => {
-    expect(buildObjectKey('u1', 'f1')).toBe('users/u1/f1');
+  it('arma la clave users/{userId}/folders/{folderId}/{uuid}-{nombre}', () => {
+    expect(buildObjectKey('1', '2', 'abc', 'Foto de Año Nuevo.jpg')).toBe(
+      'users/1/folders/2/abc-Foto_de_Ano_Nuevo.jpg',
+    );
   });
 
-  it('valida UUID', () => {
-    expect(isUuid('0b9f8a54-3c2e-4d1a-9e6f-7a8b9c0d1e2f')).toBe(true);
-    expect(isUuid("1' OR '1'='1")).toBe(false);
+  it('valida ids numéricos', () => {
+    expect(isId('42')).toBe(true);
+    expect(isId('0')).toBe(false);
+    expect(isId('-1')).toBe(false);
+    expect(isId("1' OR '1'='1")).toBe(false);
   });
 
   it('informa el límite en MB', () => {

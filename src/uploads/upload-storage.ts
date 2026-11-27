@@ -13,7 +13,7 @@ export class UploadStorage {
     @Inject(S3_CLIENT) private readonly s3: S3Client,
     @Inject(APP_CONFIG) config: AppConfig,
   ) {
-    this.bucket = config.s3Bucket;
+    this.bucket = config.s3BucketName;
   }
 
   /** Sube el archivo temporal al bucket. Si se activa signal, se aborta la subida. */

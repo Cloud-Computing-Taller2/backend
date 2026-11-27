@@ -1,10 +1,16 @@
 // Prueba de humo: 5 usuarios durante 30 s suben archivos y esperan a que queden listos.
 // Uso: k6 run -e BASE_URL=... -e TOKEN=... load/uploads-smoke.js
-// Variables: BASE_URL, TOKEN o DEV_USER_ID, LIST=1 para listar la raíz.
+// Variables: BASE_URL, TOKEN o DEV_USER_ID, FOLDER_ID, LIST=1 para listar la carpeta.
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { headers, BASE_URL, makePayload, waitUntilDone } from './lib.js';
+import {
+  headers,
+  BASE_URL,
+  FOLDER_ID,
+  makePayload,
+  waitUntilDone,
+} from './lib.js';
 
 const payload = makePayload(256 * 1024);
 
@@ -24,9 +30,9 @@ export const options = {
 
 export default function () {
   if (__ENV.LIST === '1') {
-    const list = http.get(`${BASE_URL}/folders/root/contents`, {
+    const list = http.get(`${BASE_URL}/folders/${FOLDER_ID}/contents`, {
       headers: headers(),
-      tags: { name: 'GET /folders/root/contents' },
+      tags: { name: 'GET /folders/:id/contents' },
     });
     check(list, { 'listar responde 200': (r) => r.status === 200 });
   }
@@ -34,7 +40,7 @@ export default function () {
   const name = `k6-${__VU}-${__ITER}-${Date.now()}.png`;
   const started = Date.now();
   const res = http.post(
-    `${BASE_URL}/files?folderId=root`,
+    `${BASE_URL}/files?folderId=${FOLDER_ID}`,
     { file: http.file(payload, name, 'image/png') },
     { headers: headers(), tags: { name: 'POST /files' } },
   );

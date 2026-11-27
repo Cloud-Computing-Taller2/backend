@@ -4,23 +4,23 @@ name: driveclone-dev
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: drive
       POSTGRES_PASSWORD: drive
-      POSTGRES_DB: drive
+      POSTGRES_DB: driveclone
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U drive -d drive"]
+      test: ["CMD-SHELL", "pg_isready -U drive -d driveclone"]
       interval: 3s
       retries: 20
 
   localstack:
-    # Las versiones más nuevas piden LOCALSTACK_AUTH_TOKEN.
-    image: localstack/localstack:4.14
+    # La versión 2026.x (latest) pide LOCALSTACK_AUTH_TOKEN; la 3 no.
+    image: localstack/localstack:3
     environment:
       SERVICES: s3,sqs,iam
     ports:

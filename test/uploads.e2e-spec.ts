@@ -18,22 +18,19 @@ import { request as httpRequest } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Pool } from 'pg';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import {
-  InfraModule,
-  PG_POOL,
-  S3_CLIENT,
-  SQS_CLIENT,
-} from '../src/infra/infra.module';
+import { InfraModule, S3_CLIENT, SQS_CLIENT } from '../src/infra/infra.module';
 import { UploadsModule } from '../src/uploads/uploads.module';
 import type { UploadView } from '../src/uploads/uploads.service';
 import { UploadStorage } from '../src/uploads/upload-storage';
 import { UploadWorker } from '../src/worker/upload-worker';
 import { WorkerModule } from '../src/worker/worker.module';
 
-const ANA = '11111111-1111-4111-8111-111111111111';
+// Usuario alice y su carpeta Fotos de db/migrations/002_seed.sql.
+const ALICE = '1';
+const FOLDER = '2';
 const enabled = process.env.UPLOADS_E2E === '1';
 
 /** Permite modificar la subida a S3 en cada prueba. */
@@ -75,7 +72,7 @@ async function waitFor<T>(
   let app: INestApplication<App>;
   let workerModule: TestingModule;
   let worker: UploadWorker;
-  let pool: Pool;
+  let db: DataSource;
   let s3: S3Client;
   let sqs: SQSClient;
   let tmpDir: string;
@@ -113,11 +110,11 @@ async function waitFor<T>(
     await workerModule.init();
     worker = workerModule.get(UploadWorker);
 
-    pool = apiModule.get(PG_POOL);
+    db = apiModule.get(DataSource);
     s3 = apiModule.get(S3_CLIENT);
     sqs = apiModule.get(SQS_CLIENT);
     queueUrl = process.env.SQS_QUEUE_URL!;
-    dlqUrl = `${queueUrl}-dlq`;
+    dlqUrl = process.env.SQS_DLQ_URL ?? `${queueUrl}-dlq`;
     await sqs.send(new PurgeQueueCommand({ QueueUrl: queueUrl }));
     await sqs.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }));
   });
@@ -135,25 +132,22 @@ async function waitFor<T>(
 
   const upload = async (name: string, bytes = 256 * 1024) => {
     const res = await http()
-      .post('/files?folderId=root')
-      .set('x-user-id', ANA)
+      .post(`/files?folderId=${FOLDER}`)
+      .set('x-user-id', ALICE)
       .attach('file', randomBytes(bytes), name)
       .expect(202);
     return res.body as UploadView;
   };
 
   const status = async (id: string) => {
-    const res = await http().get(`/files/${id}/status`).set('x-user-id', ANA);
+    const res = await http().get(`/files/${id}/status`).set('x-user-id', ALICE);
     return { code: res.status, body: res.body as UploadView };
   };
 
-  const objectExists = async (id: string) => {
+  const objectExists = async (key: string) => {
     try {
       await s3.send(
-        new HeadObjectCommand({
-          Bucket: process.env.S3_BUCKET,
-          Key: `users/${ANA}/${id}`,
-        }),
+        new HeadObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: key }),
       );
       return true;
     } catch {
@@ -161,13 +155,29 @@ async function waitFor<T>(
     }
   };
 
-  const rowCount = async (where: string, value: string) =>
-    (
-      await pool.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM files WHERE ${where}`,
-        [value],
-      )
-    ).rows[0].n;
+  const rowCount = async (where: string, value: string) => {
+    const rows: { n: number }[] = await db.query(
+      `SELECT count(*)::int AS n FROM files WHERE ${where}`,
+      [value],
+    );
+    return rows[0].n;
+  };
+
+  const keyOf = async (id: string) => {
+    const rows: { s3_key: string }[] = await db.query(
+      'SELECT s3_key FROM files WHERE id = $1',
+      [id],
+    );
+    return rows[0].s3_key;
+  };
+
+  const idOfKey = async (key: string) => {
+    const rows: { id: string }[] = await db.query(
+      'SELECT id FROM files WHERE s3_key = $1',
+      [key],
+    );
+    return rows[0].id;
+  };
 
   const queueDepth = async (url: string) => {
     const res = await sqs.send(
@@ -188,10 +198,10 @@ async function waitFor<T>(
   const tmpFiles = () => readdir(tmpDir);
 
   /** Verifica que no quede fila, objeto, temporal ni mensaje. */
-  async function expectNoTrace(id: string) {
+  async function expectNoTrace(id: string, key: string) {
     await waitFor(async () => (await status(id)).code === 404, 'fila borrada');
     expect(await rowCount('id = $1', id)).toBe(0);
-    expect(await objectExists(id)).toBe(false);
+    expect(await objectExists(key)).toBe(false);
     expect(await tmpFiles()).toEqual([]);
     await waitFor(async () => (await queueDepth(queueUrl)) === 0, 'cola vacía');
   }
@@ -199,13 +209,21 @@ async function waitFor<T>(
   it('sube un archivo: 202 queued y luego ready, objeto en el bucket y sin temporal', async () => {
     worker.start();
     const file = await upload(`ok-${randomUUID()}.png`);
-    expect(file).toMatchObject({ status: 'queued', mimeType: 'image/png' });
+    expect(file).toMatchObject({
+      status: 'queued',
+      contentType: 'image/png',
+      folderId: FOLDER,
+    });
+    const key = await keyOf(file.id);
+    expect(key).toMatch(
+      new RegExp(`^users/${ALICE}/folders/${FOLDER}/[0-9a-f-]{36}-ok-`),
+    );
 
     await waitFor(
       async () => (await status(file.id)).body.status === 'ready',
       'estado listo',
     );
-    expect(await objectExists(file.id)).toBe(true);
+    expect(await objectExists(key)).toBe(true);
     expect(await tmpFiles()).toEqual([]);
   });
 
@@ -217,9 +235,9 @@ async function waitFor<T>(
     const req = httpRequest({
       port,
       method: 'POST',
-      path: '/files',
+      path: `/files?folderId=${FOLDER}`,
       headers: {
-        'x-user-id': ANA,
+        'x-user-id': ALICE,
         'content-type': `multipart/form-data; boundary=${boundary}`,
         'transfer-encoding': 'chunked',
       },
@@ -246,23 +264,26 @@ async function waitFor<T>(
 
   it('cancelar mientras está en cola no deja rastro', async () => {
     const file = await upload(`en-cola-${randomUUID()}.pdf`);
+    const key = await keyOf(file.id);
     await http()
       .delete(`/files/${file.id}/upload`)
-      .set('x-user-id', ANA)
+      .set('x-user-id', ALICE)
       .expect(200, { id: file.id, status: 'cancelled' });
 
     worker.start();
-    await expectNoTrace(file.id);
+    await expectNoTrace(file.id, key);
   });
 
   it('cancelar mientras el worker sube aborta la subida y no deja rastro', async () => {
     let attempts = 0;
+    let uploadedKey = '';
     storageHook = async (_next, key, signal) => {
       attempts++;
-      const id = key.split('/').pop()!;
+      uploadedKey = key;
+      const id = await idOfKey(key);
       await http()
         .delete(`/files/${id}/upload`)
-        .set('x-user-id', ANA)
+        .set('x-user-id', ALICE)
         .expect(200);
       // Espera a que el worker aborte la subida.
       await waitFor(
@@ -274,22 +295,30 @@ async function waitFor<T>(
     };
     worker.start();
     const file = await upload(`subiendo-${randomUUID()}.mp4`);
-    await expectNoTrace(file.id);
+    await expectNoTrace(
+      file.id,
+      await waitFor(() => Promise.resolve(uploadedKey), 'clave'),
+    );
     expect(attempts).toBe(1);
   });
 
   it('cancelar justo cuando terminó de subir borra el objeto del bucket', async () => {
+    let uploadedKey = '';
     storageHook = async (next, key) => {
+      uploadedKey = key;
+      const id = await idOfKey(key);
       await next();
-      const id = key.split('/').pop()!;
       await http()
         .delete(`/files/${id}/upload`)
-        .set('x-user-id', ANA)
+        .set('x-user-id', ALICE)
         .expect(200);
     };
     worker.start();
     const file = await upload(`justo-${randomUUID()}.docx`);
-    await expectNoTrace(file.id);
+    await expectNoTrace(
+      file.id,
+      await waitFor(() => Promise.resolve(uploadedKey), 'clave'),
+    );
   });
 
   it('si S3 falla siempre: 3 intentos, estado error y el mensaje termina en la DLQ', async () => {
@@ -317,7 +346,7 @@ async function waitFor<T>(
     // Una carga con error también se puede cancelar.
     await http()
       .delete(`/files/${file.id}/upload`)
-      .set('x-user-id', ANA)
+      .set('x-user-id', ALICE)
       .expect(200);
     expect(await rowCount('id = $1', file.id)).toBe(0);
   }, 45_000);

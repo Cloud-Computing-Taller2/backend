@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
 import { APP_CONFIG } from '../infra/infra.module';
 import type { AppConfig } from '../infra/config';
@@ -20,31 +20,28 @@ import {
   tmpPaths,
 } from './upload-policy';
 import { UploadQueue } from './upload-queue';
-import {
-  FileRow,
-  isUniqueViolation,
-  UploadsRepository,
-} from './uploads.repository';
+import { FileEntity } from '../entities/file.entity';
+import { isUniqueViolation, UploadsRepository } from './uploads.repository';
 
 export interface UploadView {
   id: string;
   name: string;
-  folderId: string | null;
-  mimeType: string;
+  folderId: string;
+  contentType: string | null;
   sizeBytes: number;
   status: FileStatus;
-  updatedAt: string;
+  createdAt: string;
 }
 
-function toView(row: FileRow): UploadView {
+function toView(row: FileEntity): UploadView {
   return {
     id: row.id,
     name: row.name,
     folderId: row.folderId,
-    mimeType: row.mimeType,
+    contentType: row.contentType,
     sizeBytes: row.sizeBytes,
     status: row.status,
-    updatedAt: new Date(row.updatedAt).toISOString(),
+    createdAt: new Date(row.createdAt).toISOString(),
   };
 }
 
@@ -61,7 +58,7 @@ export class UploadsService {
   /** Recibe el archivo, crea la fila en estado queued y publica el mensaje en SQS. */
   async upload(
     userId: string,
-    folderId: string | null,
+    folderId: string,
     req: IncomingMessage,
   ): Promise<UploadView> {
     const { maxBytes, tmpDir } = this.config.uploads;
@@ -73,19 +70,19 @@ export class UploadsService {
       throw fileTooLarge(maxBytes);
     }
 
-    if (folderId && !(await this.repo.canUploadTo(userId, folderId))) {
+    if (!(await this.repo.canUploadTo(userId, folderId))) {
       req.resume();
       // 404 también cuando no hay permiso.
       throw apiError(404, 'FOLDER_NOT_FOUND', 'La carpeta no existe');
     }
 
     await mkdir(tmpDir, { recursive: true });
-    const fileId = randomUUID();
+    const uploadId = randomUUID();
 
     let received: ReceivedFile;
     try {
       received = await receiveSingleFile(req, {
-        fileId,
+        uploadId,
         tmpDir,
         maxBytes,
         accept: async (rawName) => {
@@ -105,7 +102,7 @@ export class UploadsService {
               `Tipo de archivo no permitido. Se aceptan: ${ALLOWED_EXTENSIONS.join(', ')}`,
             );
           }
-          if (await this.repo.nameTaken(userId, folderId, name)) {
+          if (await this.repo.nameTaken(folderId, name)) {
             throw duplicateName(name);
           }
           return { name, mimeType };
@@ -114,23 +111,22 @@ export class UploadsService {
     } catch (err) {
       if (err instanceof ClientAbortedError) {
         this.logger.log(
-          `Carga ${fileId} cancelada por el cliente durante el envío`,
+          `Carga ${uploadId} cancelada por el cliente durante el envío`,
         );
         throw apiError(499, 'CLIENT_CLOSED_REQUEST', err.message);
       }
       throw err;
     }
 
-    let row: FileRow;
+    let row: FileEntity;
     try {
       row = await this.repo.insertQueued({
-        id: fileId,
         ownerId: userId,
         folderId,
         name: received.name,
-        mimeType: received.mimeType,
+        contentType: received.mimeType,
         sizeBytes: received.sizeBytes,
-        s3Key: buildObjectKey(userId, fileId),
+        s3Key: buildObjectKey(userId, folderId, uploadId, received.name),
       });
     } catch (err) {
       await rm(received.path, { force: true });
@@ -138,12 +134,16 @@ export class UploadsService {
       throw err;
     }
 
+    // El worker busca el temporal por el id de la fila.
+    const tmpPath = tmpPaths(tmpDir, row.id).complete;
     try {
-      await this.queue.publish({ fileId });
+      await rename(received.path, tmpPath);
+      await this.queue.publish({ fileId: row.id });
     } catch (err) {
-      this.logger.error(`No se pudo encolar ${fileId}`, err as Error);
-      await this.repo.deleteIfStatus(fileId, ['queued']);
+      this.logger.error(`No se pudo encolar ${row.id}`, err as Error);
+      await this.repo.deleteIfStatus(row.id, ['queued']);
       await rm(received.path, { force: true });
+      await rm(tmpPath, { force: true });
       throw apiError(
         503,
         'QUEUE_UNAVAILABLE',

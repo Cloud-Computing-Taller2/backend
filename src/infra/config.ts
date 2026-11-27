@@ -6,7 +6,7 @@ export interface AppConfig {
     /** Endpoint de LocalStack. */
     endpoint?: string;
   };
-  s3Bucket: string;
+  s3BucketName: string;
   sqsQueueUrl: string;
   uploads: {
     /** Carpeta temporal compartida por la API y el worker. */
@@ -20,6 +20,8 @@ export interface AppConfig {
     visibilityTimeoutSeconds: number;
     heartbeatMs: number;
     pollWaitSeconds: number;
+    /** Puerto del endpoint /health del worker. */
+    healthPort: number;
   };
   /** Permite autenticar con la cabecera x-user-id (solo desarrollo). */
   allowDevAuth: boolean;
@@ -54,11 +56,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       region: env.AWS_REGION ?? 'us-east-1',
       endpoint: env.AWS_ENDPOINT_URL || undefined,
     },
-    s3Bucket: required(env, 'S3_BUCKET'),
+    s3BucketName: required(env, 'S3_BUCKET_NAME'),
     sqsQueueUrl: required(env, 'SQS_QUEUE_URL'),
     uploads: {
       tmpDir: env.UPLOAD_TMP_DIR ?? '/data/uploads',
-      maxBytes: positiveInt(env, 'MAX_UPLOAD_BYTES', 500 * 1024 * 1024),
+      maxBytes: positiveInt(env, 'MAX_UPLOAD_BYTES', 50 * 1024 * 1024),
     },
     worker: {
       concurrency: Math.min(positiveInt(env, 'WORKER_CONCURRENCY', 4), 10),
@@ -73,6 +75,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         positiveInt(env, 'WORKER_POLL_WAIT_SECONDS', 10),
         20,
       ),
+      healthPort: positiveInt(env, 'WORKER_PORT', 3001),
     },
     allowDevAuth: env.ALLOW_DEV_AUTH === 'true',
   };

@@ -4,7 +4,8 @@ import { APP_CONFIG } from '../infra/infra.module';
 import type { AppConfig } from '../infra/config';
 import { tmpPaths } from '../uploads/upload-policy';
 import { UploadStorage } from '../uploads/upload-storage';
-import { FileRow, UploadsRepository } from '../uploads/uploads.repository';
+import { FileEntity } from '../entities/file.entity';
+import { UploadsRepository } from '../uploads/uploads.repository';
 
 /** ack: borrar el mensaje. retry: reintentar. dead: último intento, va a la DLQ. */
 export type Outcome = 'ack' | 'retry' | 'dead';
@@ -43,7 +44,12 @@ export class UploadProcessor {
     const cancel = new AbortController();
     const stopWatching = this.watch(ctx, cancel);
     try {
-      await this.storage.putFile(row.s3Key, tmp, row.mimeType, cancel.signal);
+      await this.storage.putFile(
+        row.s3Key,
+        tmp,
+        row.contentType ?? 'application/octet-stream',
+        cancel.signal,
+      );
     } catch (err) {
       if (cancel.signal.aborted || (await this.isCancelled(fileId))) {
         await this.cleanupCancelled(row, tmp);
@@ -83,7 +89,7 @@ export class UploadProcessor {
 
   private async handleFailure(
     ctx: JobContext,
-    row: FileRow,
+    row: FileEntity,
     tmp: string,
     err: unknown,
   ): Promise<Outcome> {
@@ -110,7 +116,7 @@ export class UploadProcessor {
   }
 
   /** Borra el objeto, el temporal y la fila de una carga cancelada. */
-  private async cleanupCancelled(row: FileRow, tmp: string): Promise<void> {
+  private async cleanupCancelled(row: FileEntity, tmp: string): Promise<void> {
     await this.storage.deleteObject(row.s3Key);
     await rm(tmp, { force: true });
     await this.repo.deleteIfStatus(row.id, ['cancelled']);

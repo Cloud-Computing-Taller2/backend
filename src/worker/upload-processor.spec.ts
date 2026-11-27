@@ -4,27 +4,29 @@ import { join } from 'node:path';
 import type { AppConfig } from '../infra/config';
 import type { FileStatus } from '../uploads/upload-policy';
 import type { UploadStorage } from '../uploads/upload-storage';
-import type { FileRow, UploadsRepository } from '../uploads/uploads.repository';
+import type { FileEntity } from '../entities/file.entity';
+import type { UploadsRepository } from '../uploads/uploads.repository';
 import { UploadProcessor } from './upload-processor';
 
-const FILE_ID = '0b9f8a54-3c2e-4d1a-9e6f-7a8b9c0d1e2f';
+const FILE_ID = '7';
+const KEY = 'users/1/folders/2/abc-a.png';
 
 /** Repositorio en memoria para las pruebas. */
 class FakeRepo {
-  row: FileRow | null;
+  row: FileEntity | null;
 
   constructor(status: FileStatus | null) {
     this.row = status
       ? {
           id: FILE_ID,
-          ownerId: 'owner',
-          folderId: null,
+          ownerId: '1',
+          folderId: '2',
           name: 'a.png',
-          mimeType: 'image/png',
+          contentType: 'image/png',
           sizeBytes: 3,
-          s3Key: `users/owner/${FILE_ID}`,
+          s3Key: KEY,
           status,
-          updatedAt: new Date(),
+          createdAt: new Date(),
         }
       : null;
   }
@@ -110,7 +112,7 @@ describe('UploadProcessor', () => {
     const { repo, storage, run } = setup('queued');
     await expect(run()).resolves.toBe('ack');
     expect(repo.row?.status).toBe('ready');
-    expect(storage.objects.has(`users/owner/${FILE_ID}`)).toBe(true);
+    expect(storage.objects.has(KEY)).toBe(true);
     expect(await tmpExists()).toBe(false);
   });
 
@@ -145,7 +147,7 @@ describe('UploadProcessor', () => {
       });
     await expect(run()).resolves.toBe('ack');
     expect(repo.row).toBeNull();
-    expect(storage.deleted).toEqual([`users/owner/${FILE_ID}`]);
+    expect(storage.deleted).toEqual([KEY]);
     expect(await tmpExists()).toBe(false);
   });
 

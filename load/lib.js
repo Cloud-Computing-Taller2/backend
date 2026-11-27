@@ -3,6 +3,8 @@ import { sleep } from 'k6';
 import crypto from 'k6/crypto';
 
 export const BASE_URL = __ENV.BASE_URL || 'http://localhost/api';
+// Carpeta destino; 2 es la carpeta Fotos de alice en los datos de prueba.
+export const FOLDER_ID = __ENV.FOLDER_ID || '2';
 
 export function headers() {
   if (__ENV.TOKEN) return { Authorization: `Bearer ${__ENV.TOKEN}` };

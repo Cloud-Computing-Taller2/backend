@@ -11,7 +11,8 @@ export interface AcceptedFile {
 }
 
 export interface ReceiveOptions {
-  fileId: string;
+  /** Nombre del temporal mientras todavía no existe la fila. */
+  uploadId: string;
   tmpDir: string;
   maxBytes: number;
   /** Valida nombre y tipo antes de escribir el archivo. */
@@ -39,7 +40,7 @@ export function receiveSingleFile(
   opts: ReceiveOptions,
 ): Promise<ReceivedFile> {
   return new Promise<ReceivedFile>((resolve, reject) => {
-    const paths = tmpPaths(opts.tmpDir, opts.fileId);
+    const paths = tmpPaths(opts.tmpDir, opts.uploadId);
     let settled = false;
     let parser: busboy.Busboy;
     let output: WriteStream | undefined;

@@ -22,6 +22,10 @@ export class UploadWorker {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
+  get isRunning(): boolean {
+    return this.running;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;

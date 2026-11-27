@@ -23,9 +23,23 @@ export function fileTooLarge(maxBytes: number): HttpException {
   );
 }
 
-/** Clave del objeto en el bucket: users/{ownerId}/{fileId}. */
-export function buildObjectKey(ownerId: string, fileId: string): string {
-  return `users/${ownerId}/${fileId}`;
+/** Clave del objeto en el bucket: users/{userId}/folders/{folderId}/{uuid}-{nombre}. */
+export function buildObjectKey(
+  ownerId: string,
+  folderId: string,
+  uploadId: string,
+  name: string,
+): string {
+  return `users/${ownerId}/folders/${folderId}/${uploadId}-${safeKeyName(name)}`;
+}
+
+/** Nombre sin tildes ni caracteres especiales para usarlo en la clave. */
+export function safeKeyName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .slice(-100);
 }
 
 /** Extensiones permitidas y su tipo MIME. */
@@ -87,31 +101,31 @@ export function sanitizeFileName(raw: string | undefined): string | null {
   return clean.normalize('NFC');
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Ids BIGSERIAL de PostgreSQL.
+const ID_RE = /^[1-9][0-9]{0,17}$/;
 
-export function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && UUID_RE.test(value);
+export function isId(value: unknown): value is string {
+  return typeof value === 'string' && ID_RE.test(value);
 }
 
-export function parseUuidOrThrow(value: unknown, what = 'id'): string {
-  if (!isUuid(value)) {
+export function parseIdOrThrow(value: unknown, what = 'id'): string {
+  if (!isId(value)) {
     throw apiError(
       400,
       'INVALID_ID',
       `El ${what} no es un identificador válido`,
     );
   }
-  return value.toLowerCase();
+  return value;
 }
 
 /** Rutas del temporal: .part mientras se recibe y sin extensión cuando está completo. */
 export function tmpPaths(
   tmpDir: string,
-  fileId: string,
+  name: string,
 ): { partial: string; complete: string } {
   return {
-    partial: `${tmpDir}/${fileId}.part`,
-    complete: `${tmpDir}/${fileId}`,
+    partial: `${tmpDir}/${name}.part`,
+    complete: `${tmpDir}/${name}`,
   };
 }
