@@ -10,6 +10,7 @@ export class AppController {
     return this.appService.getHello();
   }
 
+  /** Liveness probe for the container healthcheck; keep it dependency-free. */
   @Get('health')
   health(): { status: string } {
     return { status: 'ok' };
