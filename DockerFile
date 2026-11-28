@@ -9,7 +9,6 @@ RUN pnpm install --frozen-lockfile
 
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
-COPY contracts ./contracts
 
 RUN pnpm run build && rm -rf src tsconfig*.json nest-cli.json
 RUN pnpm prune --production
