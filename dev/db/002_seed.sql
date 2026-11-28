@@ -2,9 +2,9 @@
 
 -- Demo password for all 3 users: "Password123!" (bcrypt cost 10).
 INSERT INTO users (username, email, password_hash) VALUES
-    ('alice', 'alice@example.com', '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'),
-    ('bob',   'bob@example.com',   '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'),
-    ('carol', 'carol@example.com', '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy');
+    ('alice', 'alice@example.com', '$2b$10$F3UunvwarJ16whNp.Iia2epoVsr6LJHP5vIzdecnhKwGY79Ztpely'),
+    ('bob',   'bob@example.com',   '$2b$10$F3UunvwarJ16whNp.Iia2epoVsr6LJHP5vIzdecnhKwGY79Ztpely'),
+    ('carol', 'carol@example.com', '$2b$10$F3UunvwarJ16whNp.Iia2epoVsr6LJHP5vIzdecnhKwGY79Ztpely');
 
 INSERT INTO folders (id, owner_id, parent_id, name) VALUES
     (1, 1, NULL, 'Documentos'),
